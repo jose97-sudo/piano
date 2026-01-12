@@ -1,0 +1,5 @@
+{
+  "name": "Pentagrama Maestro",
+  "description": "Una aplicación interactiva para practicar lectura musical en clave de Sol y Fa, generando notas aleatorias y permitiendo la exportación a PDF.",
+  "requestFramePermissions": []
+}
