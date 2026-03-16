@@ -4,101 +4,107 @@ import { Renderer, Stave, StaveNote, Voice, Formatter, StaveConnector } from 've
 import { MusicNote } from '../types';
 
 interface MusicSheetProps {
-  trebleMeasures: MusicNote[][];
-  bassMeasures: MusicNote[][];
+  tracks: MusicNote[][][]; // Array of 4 tracks, each track is an array of 4 measures
 }
 
-const MusicSheet: React.FC<MusicSheetProps> = ({ trebleMeasures, bassMeasures }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+const MusicSheet: React.FC<MusicSheetProps> = ({ tracks }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    if (!containerRef.current || trebleMeasures.length === 0) return;
+    if (!canvasRef.current || tracks.length === 0) return;
 
-    // Limpiar renderizado previo
-    containerRef.current.innerHTML = '';
-
-    const renderer = new Renderer(containerRef.current, Renderer.Backends.SVG);
+    const canvas = canvasRef.current;
+    // We must use the canvas element directly for the CANVAS backend in VexFlow 5
+    const renderer = new Renderer(canvas, Renderer.Backends.CANVAS);
     
-    // Ancho total para 4 compases
-    const totalWidth = 850;
-    const height = 350;
+    const totalWidth = 900;
+    const height = 650; 
+    
     renderer.resize(totalWidth, height);
-
     const context = renderer.getContext();
-    const measureWidth = (totalWidth - 50) / 4;
     
-    let currentX = 40;
+    // Clear the canvas manually before redrawing to prevent ghosting
+    context.clear();
+    
+    const measureWidth = (totalWidth - 60) / 4;
+    const yOffsets = [40, 180, 350, 490];
 
-    for (let i = 0; i < 4; i++) {
-      // Treble Staff (Top)
-      const trebleStave = new Stave(currentX, 40, measureWidth);
-      if (i === 0) {
-        trebleStave.addClef('treble').addTimeSignature('4/4');
-      }
-      trebleStave.setContext(context).draw();
+    // Procesamos 4 compases (columnas)
+    for (let m = 0; m < 4; m++) {
+      let currentX = 50 + (m * measureWidth);
+      const staves: Stave[] = [];
 
-      // Bass Staff (Bottom)
-      const bassStave = new Stave(currentX, 160, measureWidth);
-      if (i === 0) {
-        bassStave.addClef('bass').addTimeSignature('4/4');
-        
-        // Add connectors for the first measure
-        const lineLeft = new StaveConnector(trebleStave, bassStave);
-        lineLeft.setType(StaveConnector.type.SINGLE_LEFT);
-        lineLeft.setContext(context).draw();
+      // Creamos los pentagramas para esta columna
+      for (let t = 0; t < 4; t++) {
+        const stave = new Stave(currentX, yOffsets[t], measureWidth);
+        const isTreble = t % 2 === 0;
+        const clef = isTreble ? 'treble' : 'bass';
 
-        const brace = new StaveConnector(trebleStave, bassStave);
-        brace.setType(StaveConnector.type.BRACE);
-        brace.setContext(context).draw();
-      }
+        if (m === 0) {
+          stave.addClef(clef).addTimeSignature('4/4');
+          
+          // Añadir llaves y conectores de sistema
+          if (t === 0) {
+            const nextStave = new Stave(currentX, yOffsets[1], measureWidth);
+            const brace = new StaveConnector(stave, nextStave);
+            brace.setType(StaveConnector.type.BRACE);
+            brace.setContext(context).draw();
+            
+            const line = new StaveConnector(stave, nextStave);
+            line.setType(StaveConnector.type.SINGLE_LEFT);
+            line.setContext(context).draw();
+          }
+          if (t === 2) {
+             const nextStave = new Stave(currentX, yOffsets[3], measureWidth);
+             const brace = new StaveConnector(stave, nextStave);
+             brace.setType(StaveConnector.type.BRACE);
+             brace.setContext(context).draw();
 
-      // Connector for measure boundary
-      const connector = new StaveConnector(trebleStave, bassStave);
-      connector.setType(i === 3 ? StaveConnector.type.SINGLE_RIGHT : StaveConnector.type.SINGLE_RIGHT);
-      connector.setContext(context).draw();
+             const line = new StaveConnector(stave, nextStave);
+             line.setType(StaveConnector.type.SINGLE_LEFT);
+             line.setContext(context).draw();
+          }
+        }
 
-      bassStave.setContext(context).draw();
+        stave.setContext(context).draw();
+        staves.push(stave);
 
-      // Treble Notes
-      const vfTrebleNotes = trebleMeasures[i].map((n) => {
-        return new StaveNote({
-          clef: 'treble',
-          keys: n.keys,
-          duration: n.duration,
+        // Renderizar notas
+        const measureNotes = tracks[t][m];
+        const vfNotes = measureNotes.map((n) => {
+          return new StaveNote({
+            clef: clef as any,
+            keys: n.keys,
+            duration: n.duration,
+          });
         });
-      });
-      const trebleVoice = new Voice({ num_beats: 4, beat_value: 4 });
-      trebleVoice.addTickables(vfTrebleNotes);
 
-      // Bass Notes
-      const vfBassNotes = bassMeasures[i].map((n) => {
-        return new StaveNote({
-          clef: 'bass',
-          keys: n.keys,
-          duration: n.duration,
-        });
-      });
-      const bassVoice = new Voice({ num_beats: 4, beat_value: 4 });
-      bassVoice.addTickables(vfBassNotes);
+        const voice = new Voice({ num_beats: 4, beat_value: 4 });
+        voice.addTickables(vfNotes);
 
-      // Format both voices together on their respective staves
-      new Formatter().joinVoices([trebleVoice]).formatToStave([trebleVoice], trebleStave);
-      new Formatter().joinVoices([bassVoice]).formatToStave([bassVoice], bassStave);
+        new Formatter().joinVoices([voice]).formatToStave([voice], stave);
+        voice.draw(context, stave);
+      }
       
-      trebleVoice.draw(context, trebleStave);
-      bassVoice.draw(context, bassStave);
-
-      currentX += measureWidth;
+      // Líneas conectoras verticales al final de cada compás
+      const conn1 = new StaveConnector(staves[0], staves[1]);
+      conn1.setType(StaveConnector.type.SINGLE_RIGHT);
+      conn1.setContext(context).draw();
+      
+      const conn2 = new StaveConnector(staves[2], staves[3]);
+      conn2.setType(StaveConnector.type.SINGLE_RIGHT);
+      conn2.setContext(context).draw();
     }
 
-  }, [trebleMeasures, bassMeasures]);
+  }, [tracks]);
 
   return (
-    <div 
-      id="music-canvas" 
-      ref={containerRef} 
-      className="flex justify-center items-center w-full overflow-x-auto py-4"
-    />
+    <div className="flex justify-center items-center w-full overflow-x-auto py-4 bg-white rounded-lg">
+      <canvas 
+        ref={canvasRef} 
+        className="max-w-full h-auto"
+      />
+    </div>
   );
 };
 
